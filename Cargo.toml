@@ -1,0 +1,6 @@
+[package]
+name = "fuse-game"
+version = "0.1.0"
+authors = ["aaronlevin <vilevin@gmail.com>"]
+
+[dependencies]
