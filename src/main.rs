@@ -1,3 +1,5 @@
+#![feature(const_str_len)]
+
 extern crate env_logger;
 extern crate fuse;
 extern crate libc;
@@ -20,8 +22,8 @@ const CREATE_TIME: Timespec = Timespec {
 
 const INSTRUCTIONS_TXT_CONTENT: &'static str = "Welcome to Fuschia!\n";
 const INSTRUCTIONS_TXT_ATTR: FileAttr = FileAttr {
-    ino: 2,
-    size: 13,
+    ino: 3,
+    size: INSTRUCTIONS_TXT_CONTENT.len() as u64,
     blocks: 1,
     atime: CREATE_TIME,
     mtime: CREATE_TIME,
@@ -78,6 +80,8 @@ impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
+        } else if parent == 1 && name.to_str() == Some("instructions.txt") {
+            reply.entry(&TTL, &INSTRUCTIONS_TXT_ATTR, 0);
         } else {
             reply.error(ENOENT);
         }
@@ -87,6 +91,7 @@ impl Filesystem for HelloFS {
         match ino {
             1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
             2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
+            3 => reply.attr(&TTL, &INSTRUCTIONS_TXT_ATTR),
             _ => reply.error(ENOENT),
         }
     }
@@ -102,6 +107,8 @@ impl Filesystem for HelloFS {
     ) {
         if ino == 2 {
             reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
+        } else if ino == 3 {
+            reply.data(&INSTRUCTIONS_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
             reply.error(ENOENT);
         }
@@ -124,6 +131,7 @@ impl Filesystem for HelloFS {
             (1, FileType::Directory, "."),
             (1, FileType::Directory, ".."),
             (2, FileType::RegularFile, "hello.txt"),
+            (3, FileType::RegularFile, "instructions.txt"),
         ];
 
         // Offset of 0 means no offset.
