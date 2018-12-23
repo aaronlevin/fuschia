@@ -13,6 +13,53 @@ use std::env;
 use std::ffi::OsStr;
 use time::Timespec;
 
+pub struct GameFile {
+    name: String,
+    content: String,
+}
+impl GameFile {
+    pub fn new(name: String, content: String) -> GameFile {
+        GameFile {
+            name: name,
+            content: content,
+        }
+    }
+    pub fn content(mut self, content: &str) -> Self {
+        self.content = content.to_string();
+        self
+    }
+}
+
+pub struct GameDir {
+    name: String,
+    files: Vec<GameFile>,
+    sub_dirs: Vec<GameDir>,
+}
+impl GameDir {
+    pub fn new(name: String) -> GameDir {
+        GameDir {
+            name: name,
+            files: Vec::new(),
+            sub_dirs: Vec::new(),
+        }
+    }
+    pub fn with_file(mut self, file: GameFile) -> Self {
+        self.files.push(file);
+        self
+    }
+    pub fn with_dir(mut self, dir: GameDir) -> Self {
+        self.sub_dirs.push(dir);
+        self
+    }
+}
+
+pub fn dir(name: &str) -> GameDir {
+    GameDir::new(name.to_string())
+}
+pub fn file(name: &str) -> GameFile {
+    GameFile::new(name.to_string(), "".to_string())
+}
+
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 
 const CREATE_TIME: Timespec = Timespec {
@@ -146,6 +193,7 @@ impl Filesystem for HelloFS {
 }
 
 fn main() {
+    let game_dir: GameDir = dir("cool_dir").with_file(file("cool_file.txt").content("content"));
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "ro", "-o", "fsname=hello"]
