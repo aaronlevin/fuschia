@@ -15,12 +15,14 @@ use time::Timespec;
 
 pub struct GameFile {
     name: String,
+    inode: u64,
     content: String,
 }
 impl GameFile {
-    pub fn new(name: String, content: String) -> GameFile {
+    pub fn new(inode: u64, name: String, content: String) -> GameFile {
         GameFile {
             name: name,
+            inode: inode,
             content: content,
         }
     }
@@ -28,17 +30,37 @@ impl GameFile {
         self.content = content.to_string();
         self
     }
+    pub fn to_file_attr(&self) -> FileAttr {
+        FileAttr {
+            ino: self.inode,
+            size: self.content.len() as u64,
+            blocks: 1,
+            atime: CREATE_TIME,
+            mtime: CREATE_TIME,
+            ctime: CREATE_TIME,
+            crtime: CREATE_TIME,
+            kind: FileType::RegularFile,
+            perm: 0o644,
+            nlink: 1,
+            uid: 501,
+            gid: 20,
+            rdev: 0,
+            flags: 0,
+        }
+    }
 }
 
 pub struct GameDir {
     name: String,
+    inode: u64,
     files: Vec<GameFile>,
     sub_dirs: Vec<GameDir>,
 }
 impl GameDir {
-    pub fn new(name: String) -> GameDir {
+    pub fn new(inode: u64, name: String) -> GameDir {
         GameDir {
             name: name,
+            inode: inode,
             files: Vec::new(),
             sub_dirs: Vec::new(),
         }
@@ -53,11 +75,11 @@ impl GameDir {
     }
 }
 
-pub fn dir(name: &str) -> GameDir {
-    GameDir::new(name.to_string())
+pub fn dir(inode: u64, name: &str) -> GameDir {
+    GameDir::new(inode, name.to_string())
 }
-pub fn file(name: &str) -> GameFile {
-    GameFile::new(name.to_string(), "".to_string())
+pub fn file(inode: u64, name: &str) -> GameFile {
+    GameFile::new(inode, name.to_string(), "".to_string())
 }
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
@@ -121,17 +143,35 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
     flags: 0,
 };
 
-struct HelloFS;
+pub struct HelloFS {
+    root: GameDir,
+}
+
+pub fn lookup_gamedir<'a>(parent: u64, name: &OsStr, gamedir: &'a GameDir) -> Option<&'a GameFile> {
+    if gamedir.inode == parent {
+        (&gamedir.files)
+            .into_iter()
+            .find(|f| Some(f.name.as_ref()) == name.to_str())
+    } else {
+        let mut return_val: Option<&'a GameFile> = None;
+        for subdir in &gamedir.sub_dirs {
+            if return_val.is_none() {
+                let result = lookup_gamedir(parent, name, subdir);
+                if result.is_some() {
+                    return_val = result;
+                }
+            }
+        }
+        return_val
+    }
+}
 
 impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent == 1 && name.to_str() == Some("hello.txt") {
-            reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
-        } else if parent == 1 && name.to_str() == Some("instructions.txt") {
-            reply.entry(&TTL, &INSTRUCTIONS_TXT_ATTR, 0);
-        } else {
-            reply.error(ENOENT);
-        }
+        match lookup_gamedir(parent, name, &self.root) {
+            Some(f) => reply.entry(&TTL, &f.to_file_attr(), 0),
+            None => reply.error(ENOENT),
+        };
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
@@ -193,12 +233,13 @@ impl Filesystem for HelloFS {
 }
 
 fn main() {
-    let game_dir: GameDir = dir("cool_dir").with_file(file("cool_file.txt").content("content"));
+    let game_dir: GameDir =
+        dir(11, "cool_dir").with_file(file(12, "cool_file.txt").content("content"));
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "ro", "-o", "fsname=hello"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    fuse::mount(HelloFS, &mountpoint, &options).unwrap();
+    fuse::mount(HelloFS { root: game_dir }, &mountpoint, &options).unwrap();
 }
