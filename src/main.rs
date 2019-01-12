@@ -73,6 +73,24 @@ impl GameDir {
         self.sub_dirs.push(dir);
         self
     }
+    pub fn to_file_attr(&self) -> FileAttr {
+        FileAttr {
+            ino: self.inode,
+            size: 0,
+            blocks: 1,
+            atime: CREATE_TIME,
+            mtime: CREATE_TIME,
+            ctime: CREATE_TIME,
+            crtime: CREATE_TIME,
+            kind: FileType::Directory,
+            perm: 0o644,
+            nlink: 1,
+            uid: 501,
+            gid: 20,
+            rdev: 0,
+            flags: 0,
+        }
+    }
 }
 
 pub fn dir(inode: u64, name: &str) -> GameDir {
@@ -90,58 +108,8 @@ const CREATE_TIME: Timespec = Timespec {
 }; // 2013-10-08 08:56
 
 const INSTRUCTIONS_TXT_CONTENT: &'static str = "Welcome to Fuschia!\n";
-const INSTRUCTIONS_TXT_ATTR: FileAttr = FileAttr {
-    ino: 3,
-    size: INSTRUCTIONS_TXT_CONTENT.len() as u64,
-    blocks: 1,
-    atime: CREATE_TIME,
-    mtime: CREATE_TIME,
-    ctime: CREATE_TIME,
-    crtime: CREATE_TIME,
-    kind: FileType::RegularFile,
-    perm: 0o644,
-    nlink: 1,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-};
-
-const HELLO_DIR_ATTR: FileAttr = FileAttr {
-    ino: 1,
-    size: 0,
-    blocks: 0,
-    atime: CREATE_TIME,
-    mtime: CREATE_TIME,
-    ctime: CREATE_TIME,
-    crtime: CREATE_TIME,
-    kind: FileType::Directory,
-    perm: 0o755,
-    nlink: 2,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-};
 
 const HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
-
-const HELLO_TXT_ATTR: FileAttr = FileAttr {
-    ino: 2,
-    size: 13,
-    blocks: 1,
-    atime: CREATE_TIME,
-    mtime: CREATE_TIME,
-    ctime: CREATE_TIME,
-    crtime: CREATE_TIME,
-    kind: FileType::RegularFile,
-    perm: 0o644,
-    nlink: 1,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-};
 
 pub struct HelloFS {
     root: GameDir,
@@ -167,6 +135,28 @@ pub fn lookup_gamedir<'a>(parent: u64, name: &OsStr, gamedir: &'a GameDir) -> Op
     }
 }
 
+pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
+    if gamedir.inode == ino {
+        Some(gamedir.to_file_attr())
+    } else {
+        let mut return_val: Option<FileAttr> = None;
+        for file in gamedir.files.iter() {
+            if return_val.is_none() && file.inode == ino {
+                return_val = Some(file.to_file_attr());
+            }
+        }
+        for subdir in gamedir.sub_dirs.iter() {
+            if return_val.is_none() {
+                let result = getattr_gamedir(ino, subdir);
+                if result.is_some() {
+                    return_val = result;
+                }
+            }
+        }
+        return_val
+    }
+}
+
 impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         match lookup_gamedir(parent, name, &self.root) {
@@ -176,11 +166,9 @@ impl Filesystem for HelloFS {
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        match ino {
-            1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
-            2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
-            3 => reply.attr(&TTL, &INSTRUCTIONS_TXT_ATTR),
-            _ => reply.error(ENOENT),
+        match getattr_gamedir(ino, &self.root) {
+            Some(file_attr) => reply.attr(&TTL, &file_attr),
+            None => reply.error(ENOENT),
         }
     }
 
