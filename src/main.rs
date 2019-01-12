@@ -149,12 +149,13 @@ pub struct HelloFS {
 
 pub fn lookup_gamedir<'a>(parent: u64, name: &OsStr, gamedir: &'a GameDir) -> Option<&'a GameFile> {
     if gamedir.inode == parent {
-        (&gamedir.files)
-            .into_iter()
+        gamedir
+            .files
+            .iter()
             .find(|f| Some(f.name.as_ref()) == name.to_str())
     } else {
         let mut return_val: Option<&'a GameFile> = None;
-        for subdir in &gamedir.sub_dirs {
+        for subdir in gamedir.sub_dirs.iter() {
             if return_val.is_none() {
                 let result = lookup_gamedir(parent, name, subdir);
                 if result.is_some() {
