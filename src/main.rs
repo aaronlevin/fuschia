@@ -107,10 +107,6 @@ const CREATE_TIME: Timespec = Timespec {
     nsec: 0,
 }; // 2013-10-08 08:56
 
-const INSTRUCTIONS_TXT_CONTENT: &'static str = "Welcome to Fuschia!\n";
-
-const HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
-
 pub struct HelloFS {
     root: GameDir,
 }
@@ -178,6 +174,20 @@ pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<&str> {
     }
 }
 
+pub fn find_gamedir(ino: u64, root: &GameDir) -> Option<&GameDir> {
+    let mut return_val: Option<&GameDir> = None;
+    if root.inode == ino {
+        return_val = Some(root);
+    } else {
+        for subdir in root.sub_dirs.iter() {
+            if return_val.is_none() {
+                return_val = find_gamedir(ino, subdir);
+            }
+        }
+    }
+    return_val
+}
+
 impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         match lookup_gamedir(parent, name, &self.root) {
@@ -216,32 +226,35 @@ impl Filesystem for HelloFS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        if ino != 1 {
-            reply.error(ENOENT);
-            return;
+        match find_gamedir(ino, &self.root) {
+            Some(gamedir) => {
+                let mut entries: Vec<(u64, FileType, &str)> = Vec::new();
+                for subdir in gamedir.sub_dirs.iter() {
+                    entries.push((subdir.inode, FileType::Directory, subdir.name.as_str()));
+                }
+                for file in gamedir.files.iter() {
+                    entries.push((file.inode, FileType::RegularFile, file.name.as_str()));
+                }
+                // Offset of 0 means no offset.
+                // Non-zero offset means the passed offset has already been seen, and we should start after
+                // it.
+                let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
+                for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
+                    reply.add(entry.0, i as i64, entry.1, entry.2);
+                }
+                reply.ok();
+            }
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
         }
-
-        let entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-            (2, FileType::RegularFile, "hello.txt"),
-            (3, FileType::RegularFile, "instructions.txt"),
-        ];
-
-        // Offset of 0 means no offset.
-        // Non-zero offset means the passed offset has already been seen, and we should start after
-        // it.
-        let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
-        for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
-            reply.add(entry.0, i as i64, entry.1, entry.2);
-        }
-        reply.ok();
     }
 }
 
 fn main() {
     let game_dir: GameDir =
-        dir(11, "cool_dir").with_file(file(12, "cool_file.txt").content("content"));
+        dir(1, "cool_dir").with_file(file(2, "cool_file.txt").content("content"));
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "ro", "-o", "fsname=hello"]
