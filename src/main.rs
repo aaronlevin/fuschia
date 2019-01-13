@@ -13,6 +13,7 @@ use std::env;
 use std::ffi::OsStr;
 use time::Timespec;
 
+#[derive(Debug)]
 pub struct GameFile {
     name: String,
     inode: u64,
@@ -50,6 +51,7 @@ impl GameFile {
     }
 }
 
+#[derive(Debug)]
 pub struct GameDir {
     name: String,
     inode: u64,
@@ -100,6 +102,12 @@ pub fn file(inode: u64, name: &str) -> GameFile {
     GameFile::new(inode, name.to_string(), "".to_string())
 }
 
+#[derive(Debug)]
+pub enum DirOrFile<'a> {
+    Dir(&'a GameDir),
+    File(&'a GameFile),
+}
+
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 
 const CREATE_TIME: Timespec = Timespec {
@@ -111,14 +119,29 @@ pub struct HelloFS {
     root: GameDir,
 }
 
-pub fn lookup_gamedir<'a>(parent: u64, name: &OsStr, gamedir: &'a GameDir) -> Option<&'a GameFile> {
+pub fn lookup_gamedir<'a>(
+    parent: u64,
+    name: &OsStr,
+    gamedir: &'a GameDir,
+) -> Option<DirOrFile<'a>> {
+    println!("lookup_gamedir({}, {:?})", parent, name);
     if gamedir.inode == parent {
-        gamedir
+        let result = gamedir
             .files
             .iter()
             .find(|f| Some(f.name.as_ref()) == name.to_str())
+            .map(|f| DirOrFile::File(f));
+        if result.is_some() {
+            result
+        } else {
+            gamedir
+                .sub_dirs
+                .iter()
+                .find(|dir| Some(dir.name.as_ref()) == name.to_str())
+                .map(|d| DirOrFile::Dir(d))
+        }
     } else {
-        let mut return_val: Option<&'a GameFile> = None;
+        let mut return_val: Option<DirOrFile<'a>> = None;
         for subdir in gamedir.sub_dirs.iter() {
             if return_val.is_none() {
                 let result = lookup_gamedir(parent, name, subdir);
@@ -127,11 +150,13 @@ pub fn lookup_gamedir<'a>(parent: u64, name: &OsStr, gamedir: &'a GameDir) -> Op
                 }
             }
         }
+        println!("lookup_gamedir WILL returned: {:?}", return_val);
         return_val
     }
 }
 
 pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
+    println!("getattr_gamedir({}, {:?}", ino, gamedir);
     if gamedir.inode == ino {
         Some(gamedir.to_file_attr())
     } else {
@@ -154,6 +179,7 @@ pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
 }
 
 pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<&str> {
+    println!("read_gamedir");
     let mut return_val: Option<&str> = None;
     for file in gamedir.files.iter() {
         if return_val.is_none() {
@@ -175,6 +201,7 @@ pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<&str> {
 }
 
 pub fn find_gamedir(ino: u64, root: &GameDir) -> Option<&GameDir> {
+    println!("find_gamedir({})", ino);
     let mut return_val: Option<&GameDir> = None;
     if root.inode == ino {
         return_val = Some(root);
@@ -185,13 +212,15 @@ pub fn find_gamedir(ino: u64, root: &GameDir) -> Option<&GameDir> {
             }
         }
     }
+    println!("find_gamedir WILL return: {:?}", return_val);
     return_val
 }
 
 impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         match lookup_gamedir(parent, name, &self.root) {
-            Some(f) => reply.entry(&TTL, &f.to_file_attr(), 0),
+            Some(DirOrFile::File(f)) => reply.entry(&TTL, &f.to_file_attr(), 0),
+            Some(DirOrFile::Dir(d)) => reply.entry(&TTL, &d.to_file_attr(), 0),
             None => reply.error(ENOENT),
         };
     }
@@ -226,9 +255,12 @@ impl Filesystem for HelloFS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        println!("readdir: ino={} offset={}", ino, offset);
         match find_gamedir(ino, &self.root) {
             Some(gamedir) => {
                 let mut entries: Vec<(u64, FileType, &str)> = Vec::new();
+                entries.push((11, FileType::Directory, "."));
+                entries.push((12, FileType::Directory, ".."));
                 for subdir in gamedir.sub_dirs.iter() {
                     entries.push((subdir.inode, FileType::Directory, subdir.name.as_str()));
                 }
@@ -240,6 +272,7 @@ impl Filesystem for HelloFS {
                 // it.
                 let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
                 for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
+                    println!("Adding entry: {} {}", entry.0, entry.2);
                     reply.add(entry.0, i as i64, entry.1, entry.2);
                 }
                 reply.ok();
@@ -253,8 +286,9 @@ impl Filesystem for HelloFS {
 }
 
 fn main() {
-    let game_dir: GameDir =
-        dir(1, "cool_dir").with_file(file(2, "cool_file.txt").content("content"));
+    let game_dir: GameDir = dir(1, "cool_dir")
+        .with_file(file(3, "cool_file.txt").content("content"))
+        .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("deep")));
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "ro", "-o", "fsname=hello"]
