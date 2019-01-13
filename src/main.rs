@@ -157,6 +157,27 @@ pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
     }
 }
 
+pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<&str> {
+    let mut return_val: Option<&str> = None;
+    for file in gamedir.files.iter() {
+        if return_val.is_none() {
+            if file.inode == ino {
+                return_val = Some(file.content.as_str());
+            }
+        }
+    }
+    if return_val.is_some() {
+        return_val
+    } else {
+        for subdir in gamedir.sub_dirs.iter() {
+            if return_val.is_none() {
+                return_val = read_gamedir(ino, &subdir);
+            }
+        }
+        return_val
+    }
+}
+
 impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         match lookup_gamedir(parent, name, &self.root) {
@@ -181,12 +202,9 @@ impl Filesystem for HelloFS {
         _size: u32,
         reply: ReplyData,
     ) {
-        if ino == 2 {
-            reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
-        } else if ino == 3 {
-            reply.data(&INSTRUCTIONS_TXT_CONTENT.as_bytes()[offset as usize..]);
-        } else {
-            reply.error(ENOENT);
+        match read_gamedir(ino, &self.root) {
+            Some(content) => reply.data(&content.as_bytes()[offset as usize..]),
+            None => reply.error(ENOENT),
         }
     }
 
