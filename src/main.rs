@@ -18,6 +18,7 @@ pub struct GameFile {
     name: String,
     inode: u64,
     content: String,
+    life: u32,
 }
 impl GameFile {
     pub fn new(inode: u64, name: String, content: String) -> GameFile {
@@ -25,11 +26,22 @@ impl GameFile {
             name: name,
             inode: inode,
             content: content,
+            life: 2,
         }
     }
     pub fn content(mut self, content: &str) -> Self {
         self.content = content.to_string();
         self
+    }
+    pub fn get_content(&self) -> String {
+        if self.life > 0 {
+            self.content.to_string()
+        } else {
+            "I'm dead :(".to_string()
+        }
+    }
+    pub fn dec_life(&mut self) {
+        self.life -= 1;
     }
     pub fn to_file_attr(&self) -> FileAttr {
         FileAttr {
@@ -178,13 +190,14 @@ pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
     }
 }
 
-pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<&str> {
+pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<String> {
     println!("read_gamedir");
-    let mut return_val: Option<&str> = None;
+    let mut return_val: Option<String> = None;
     for file in gamedir.files.iter() {
         if return_val.is_none() {
+            file.dec_life();
             if file.inode == ino {
-                return_val = Some(file.content.as_str());
+                return_val = Some(file.get_content());
             }
         }
     }
