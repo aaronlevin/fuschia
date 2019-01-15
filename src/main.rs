@@ -195,7 +195,7 @@ pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<String> {
     let mut return_val: Option<String> = None;
     for file in gamedir.files.iter() {
         if return_val.is_none() {
-            file.dec_life();
+            //file.dec_life();
             if file.inode == ino {
                 return_val = Some(file.get_content());
             }
