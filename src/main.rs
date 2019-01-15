@@ -18,7 +18,7 @@ pub struct GameFile {
     name: String,
     inode: u64,
     content: String,
-    life: u32,
+    life: i32,
 }
 impl GameFile {
     pub fn new(inode: u64, name: String, content: String) -> GameFile {
@@ -26,7 +26,7 @@ impl GameFile {
             name: name,
             inode: inode,
             content: content,
-            life: 2,
+            life: 5,
         }
     }
     pub fn content(mut self, content: &str) -> Self {
@@ -37,7 +37,7 @@ impl GameFile {
         if self.life > 0 {
             self.content.to_string()
         } else {
-            "I'm dead :(".to_string()
+            "123 I'm dead :(\n".to_string()
         }
     }
     pub fn dec_life(&mut self) {
@@ -46,7 +46,7 @@ impl GameFile {
     pub fn to_file_attr(&self) -> FileAttr {
         FileAttr {
             ino: self.inode,
-            size: self.content.len() as u64,
+            size: self.get_content().len() as u64,
             blocks: 1,
             atime: CREATE_TIME,
             mtime: CREATE_TIME,
@@ -190,12 +190,12 @@ pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
     }
 }
 
-pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<String> {
+pub fn read_gamedir(ino: u64, gamedir: &mut GameDir) -> Option<String> {
     println!("read_gamedir");
     let mut return_val: Option<String> = None;
-    for file in gamedir.files.iter() {
+    for file in gamedir.files.iter_mut() {
         if return_val.is_none() {
-            //file.dec_life();
+            file.dec_life();
             if file.inode == ino {
                 return_val = Some(file.get_content());
             }
@@ -204,9 +204,9 @@ pub fn read_gamedir(ino: u64, gamedir: &GameDir) -> Option<String> {
     if return_val.is_some() {
         return_val
     } else {
-        for subdir in gamedir.sub_dirs.iter() {
+        for subdir in gamedir.sub_dirs.iter_mut() {
             if return_val.is_none() {
-                return_val = read_gamedir(ino, &subdir);
+                return_val = read_gamedir(ino, subdir);
             }
         }
         return_val
@@ -254,7 +254,7 @@ impl Filesystem for HelloFS {
         _size: u32,
         reply: ReplyData,
     ) {
-        match read_gamedir(ino, &self.root) {
+        match read_gamedir(ino, &mut self.root) {
             Some(content) => reply.data(&content.as_bytes()[offset as usize..]),
             None => reply.error(ENOENT),
         }
@@ -300,8 +300,8 @@ impl Filesystem for HelloFS {
 
 fn main() {
     let game_dir: GameDir = dir(1, "cool_dir")
-        .with_file(file(3, "cool_file.txt").content("content"))
-        .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("deep")));
+        .with_file(file(3, "cool_file.txt").content("content\n"))
+        .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("deep\n")));
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "ro", "-o", "fsname=hello"]
