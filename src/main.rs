@@ -6,14 +6,16 @@ extern crate libc;
 extern crate time;
 
 use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyWrite,
+    Request,
 };
 use libc::ENOENT;
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use time::Timespec;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub struct GameFile {
     name: String,
     inode: u64,
@@ -63,7 +65,7 @@ impl GameFile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub struct GameDir {
     name: String,
     inode: u64,
@@ -105,6 +107,16 @@ impl GameDir {
             flags: 0,
         }
     }
+    pub fn to_references<'a>(&'a mut self) -> Vec<(u64, DirOrFile<'a>)> {
+        let mut vec = Vec::new();
+        for file in self.files.iter_mut() {
+            vec.push((file.inode, DirOrFile::File(file)));
+        }
+        for subdir in self.sub_dirs.iter_mut() {
+            vec.extend(subdir.to_references());
+        }
+        vec
+    }
 }
 
 pub fn dir(inode: u64, name: &str) -> GameDir {
@@ -114,10 +126,10 @@ pub fn file(inode: u64, name: &str) -> GameFile {
     GameFile::new(inode, name.to_string(), "".to_string())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum DirOrFile<'a> {
     Dir(&'a GameDir),
-    File(&'a GameFile),
+    File(&'a mut GameFile),
 }
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
@@ -127,120 +139,40 @@ const CREATE_TIME: Timespec = Timespec {
     nsec: 0,
 }; // 2013-10-08 08:56
 
-pub struct HelloFS {
-    root: GameDir,
+pub struct HelloFS<'a> {
+    inode_table: HashMap<u64, DirOrFile<'a>>,
 }
 
-pub fn lookup_gamedir<'a>(
-    parent: u64,
-    name: &OsStr,
-    gamedir: &'a GameDir,
-) -> Option<DirOrFile<'a>> {
-    println!("lookup_gamedir({}, {:?})", parent, name);
-    if gamedir.inode == parent {
-        let result = gamedir
-            .files
-            .iter()
-            .find(|f| Some(f.name.as_ref()) == name.to_str())
-            .map(|f| DirOrFile::File(f));
-        if result.is_some() {
-            result
-        } else {
-            gamedir
-                .sub_dirs
-                .iter()
-                .find(|dir| Some(dir.name.as_ref()) == name.to_str())
-                .map(|d| DirOrFile::Dir(d))
-        }
-    } else {
-        let mut return_val: Option<DirOrFile<'a>> = None;
-        for subdir in gamedir.sub_dirs.iter() {
-            if return_val.is_none() {
-                let result = lookup_gamedir(parent, name, subdir);
-                if result.is_some() {
-                    return_val = result;
-                }
-            }
-        }
-        println!("lookup_gamedir WILL returned: {:?}", return_val);
-        return_val
-    }
-}
-
-pub fn getattr_gamedir(ino: u64, gamedir: &GameDir) -> Option<FileAttr> {
-    println!("getattr_gamedir({}, {:?}", ino, gamedir);
-    if gamedir.inode == ino {
-        Some(gamedir.to_file_attr())
-    } else {
-        let mut return_val: Option<FileAttr> = None;
-        for file in gamedir.files.iter() {
-            if return_val.is_none() && file.inode == ino {
-                return_val = Some(file.to_file_attr());
-            }
-        }
-        for subdir in gamedir.sub_dirs.iter() {
-            if return_val.is_none() {
-                let result = getattr_gamedir(ino, subdir);
-                if result.is_some() {
-                    return_val = result;
-                }
-            }
-        }
-        return_val
-    }
-}
-
-pub fn read_gamedir(ino: u64, gamedir: &mut GameDir) -> Option<String> {
-    println!("read_gamedir");
-    let mut return_val: Option<String> = None;
-    for file in gamedir.files.iter_mut() {
-        if return_val.is_none() {
-            file.dec_life();
-            if file.inode == ino {
-                return_val = Some(file.get_content());
-            }
-        }
-    }
-    if return_val.is_some() {
-        return_val
-    } else {
-        for subdir in gamedir.sub_dirs.iter_mut() {
-            if return_val.is_none() {
-                return_val = read_gamedir(ino, subdir);
-            }
-        }
-        return_val
-    }
-}
-
-pub fn find_gamedir(ino: u64, root: &GameDir) -> Option<&GameDir> {
-    println!("find_gamedir({})", ino);
-    let mut return_val: Option<&GameDir> = None;
-    if root.inode == ino {
-        return_val = Some(root);
-    } else {
-        for subdir in root.sub_dirs.iter() {
-            if return_val.is_none() {
-                return_val = find_gamedir(ino, subdir);
-            }
-        }
-    }
-    println!("find_gamedir WILL return: {:?}", return_val);
-    return_val
-}
-
-impl Filesystem for HelloFS {
+impl<'a> Filesystem for HelloFS<'a> {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        match lookup_gamedir(parent, name, &self.root) {
-            Some(DirOrFile::File(f)) => reply.entry(&TTL, &f.to_file_attr(), 0),
-            Some(DirOrFile::Dir(d)) => reply.entry(&TTL, &d.to_file_attr(), 0),
-            None => reply.error(ENOENT),
-        };
+        match self.inode_table.get(&parent) {
+            Some(DirOrFile::Dir(d)) => {
+                let result = d
+                    .files
+                    .iter()
+                    .find(|f| Some(f.name.as_ref()) == name.to_str());
+                if result.is_some() {
+                    reply.entry(&TTL, &result.unwrap().to_file_attr(), 0);
+                } else {
+                    let result = d
+                        .sub_dirs
+                        .iter()
+                        .find(|dir| Some(dir.name.as_ref()) == name.to_str());
+                    if result.is_some() {
+                        reply.entry(&TTL, &result.unwrap().to_file_attr(), 0);
+                    } else {
+                        reply.error(ENOENT);
+                    }
+                }
+            }
+            _ => reply.error(ENOENT),
+        }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        match getattr_gamedir(ino, &self.root) {
-            Some(file_attr) => reply.attr(&TTL, &file_attr),
+        match self.inode_table.get(&ino) {
+            Some(DirOrFile::Dir(d)) => reply.attr(&TTL, &d.to_file_attr()),
+            Some(DirOrFile::File(f)) => reply.attr(&TTL, &f.to_file_attr()),
             None => reply.error(ENOENT),
         }
     }
@@ -254,8 +186,15 @@ impl Filesystem for HelloFS {
         _size: u32,
         reply: ReplyData,
     ) {
-        match read_gamedir(ino, &mut self.root) {
-            Some(content) => reply.data(&content.as_bytes()[offset as usize..]),
+        match self.inode_table.get_mut(&ino) {
+            Some(DirOrFile::Dir(_d)) => reply.error(ENOENT),
+            Some(DirOrFile::File(f)) => {
+                //let result: () = f;
+                //result.dec_life();
+                //result.dec_life();
+                //reply.data(&f.content.as_bytes()[offset as usize..])
+                reply.error(ENOENT)
+            }
             None => reply.error(ENOENT),
         }
     }
@@ -269,8 +208,8 @@ impl Filesystem for HelloFS {
         mut reply: ReplyDirectory,
     ) {
         println!("readdir: ino={} offset={}", ino, offset);
-        match find_gamedir(ino, &self.root) {
-            Some(gamedir) => {
+        match self.inode_table.get(&ino) {
+            Some(DirOrFile::Dir(gamedir)) => {
                 let mut entries: Vec<(u64, FileType, &str)> = Vec::new();
                 entries.push((11, FileType::Directory, "."));
                 entries.push((12, FileType::Directory, ".."));
@@ -290,16 +229,37 @@ impl Filesystem for HelloFS {
                 }
                 reply.ok();
             }
-            None => {
+            _ => {
                 reply.error(ENOENT);
                 return;
             }
         }
     }
+
+    fn write(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _data: &[u8],
+        _flags: u32,
+        reply: ReplyWrite,
+    ) {
+        reply.error(ENOENT);
+    }
+}
+
+pub fn gamedir_to_hash_map(gamedir: &mut GameDir) -> HashMap<u64, DirOrFile> {
+    let mut hash_map = HashMap::new();
+    for (inode, dir_or_file) in gamedir.to_references() {
+        hash_map.insert(inode.clone(), dir_or_file);
+    }
+    hash_map
 }
 
 fn main() {
-    let game_dir: GameDir = dir(1, "cool_dir")
+    let mut game_dir: GameDir = dir(1, "cool_dir")
         .with_file(file(3, "cool_file.txt").content("content\n"))
         .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("deep\n")));
     env_logger::init();
@@ -308,5 +268,13 @@ fn main() {
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    fuse::mount(HelloFS { root: game_dir }, &mountpoint, &options).unwrap();
+    let inode_table = gamedir_to_hash_map(&mut game_dir);
+    fuse::mount(
+        HelloFS {
+            inode_table: inode_table,
+        },
+        &mountpoint,
+        &options,
+    )
+    .unwrap();
 }
