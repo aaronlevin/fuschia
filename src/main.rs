@@ -252,35 +252,6 @@ impl GameFile {
         self.content = content.to_string();
         self
     }
-    pub fn get_content(&self) -> String {
-        if self.life > 0 {
-            self.content.to_string()
-        } else {
-            "123 I'm dead :(\n".to_string()
-        }
-    }
-    pub fn dec_life(&mut self) {
-        self.life -= 1;
-    }
-    pub fn to_file_attr(&self) -> FileAttr {
-        FileAttr {
-            ino: self.inode,
-            size: self.get_content().len() as u64,
-            blocks: 1,
-            atime: CREATE_TIME,
-            mtime: CREATE_TIME,
-            ctime: CREATE_TIME,
-            crtime: CREATE_TIME,
-            kind: FileType::RegularFile,
-            perm: 0o644,
-            nlink: 1,
-            uid: 501,
-            gid: 20,
-            rdev: 0,
-            flags: 0,
-        }
-    }
-
     pub fn to_game_entity(&self) -> GameEntity {
         GameEntity::File {
             inode: self.inode,
@@ -317,24 +288,6 @@ impl GameDir {
         self.sub_dirs.push(dir);
         self
     }
-    pub fn to_file_attr(&self) -> FileAttr {
-        FileAttr {
-            ino: self.inode,
-            size: 0,
-            blocks: 1,
-            atime: CREATE_TIME,
-            mtime: CREATE_TIME,
-            ctime: CREATE_TIME,
-            crtime: CREATE_TIME,
-            kind: FileType::Directory,
-            perm: 0o644,
-            nlink: 1,
-            uid: 501,
-            gid: 20,
-            rdev: 0,
-            flags: 0,
-        }
-    }
     pub fn to_game_entities(&self, parent: Option<u64>) -> Vec<GameEntity> {
         let mut vec = Vec::new();
         let mut children_vec = Vec::new();
@@ -370,16 +323,6 @@ impl GameDir {
         }
         hash_map
     }
-    pub fn to_references<'a>(&'a mut self) -> Vec<(u64, DirOrFile<'a>)> {
-        let mut vec = Vec::new();
-        for file in self.files.iter_mut() {
-            vec.push((file.inode, DirOrFile::File(file)));
-        }
-        for subdir in self.sub_dirs.iter_mut() {
-            vec.extend(subdir.to_references());
-        }
-        vec
-    }
 }
 
 pub fn dir(inode: u64, name: &str) -> GameDir {
@@ -387,12 +330,6 @@ pub fn dir(inode: u64, name: &str) -> GameDir {
 }
 pub fn file(inode: u64, name: &str) -> GameFile {
     GameFile::new(inode, name.to_string(), "".to_string())
-}
-
-#[derive(Debug, Eq, Hash, PartialEq)]
-pub enum DirOrFile<'a> {
-    Dir(&'a GameDir),
-    File(&'a mut GameFile),
 }
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
@@ -536,14 +473,6 @@ impl Filesystem for HelloFS {
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         reply.ok();
     }
-}
-
-pub fn gamedir_to_hash_map(gamedir: &mut GameDir) -> HashMap<u64, DirOrFile> {
-    let mut hash_map = HashMap::new();
-    for (inode, dir_or_file) in gamedir.to_references() {
-        hash_map.insert(inode.clone(), dir_or_file);
-    }
-    hash_map
 }
 
 fn main() {
