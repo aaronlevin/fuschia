@@ -213,22 +213,37 @@ impl GameEntity {
                 content: _,
                 life: _,
                 pets_needed: _,
-            } => FileAttr {
-                ino: *inode,
-                size: self.get_content().len() as u64,
-                blocks: 1,
-                atime: CREATE_TIME,
-                mtime: CREATE_TIME,
-                ctime: CREATE_TIME,
-                crtime: CREATE_TIME,
-                kind: FileType::RegularFile,
-                perm: 0o644,
-                nlink: 1,
-                uid: 501,
-                gid: 20,
-                rdev: 0,
-                flags: 0,
-            },
+            } => {
+                let mut content_size;
+                if self.get_name() == "LiveJournal.txt" {
+                    // oh god such a hack because we don't
+                    // have access to the GameStatus here
+                    let fake_game_status = GameStatus {
+                        kitties_needing_pets: 100,
+                        kitties_at_peace: 100,
+                        kitties_mad: 100,
+                    };
+                    content_size = fake_game_status.to_content().len() as u64;
+                } else {
+                    content_size = self.get_content().len() as u64;
+                }
+                FileAttr {
+                    ino: *inode,
+                    size: content_size,
+                    blocks: 1,
+                    atime: CREATE_TIME,
+                    mtime: CREATE_TIME,
+                    ctime: CREATE_TIME,
+                    crtime: CREATE_TIME,
+                    kind: FileType::RegularFile,
+                    perm: 0o644,
+                    nlink: 1,
+                    uid: 501,
+                    gid: 20,
+                    rdev: 0,
+                    flags: 0,
+                }
+            }
         }
     }
 }
@@ -332,6 +347,65 @@ pub fn file(inode: u64, name: &str) -> GameFile {
     GameFile::new(inode, name.to_string(), "".to_string())
 }
 
+pub struct GameStatus {
+    kitties_needing_pets: u32,
+    kitties_at_peace: u32,
+    kitties_mad: u32,
+}
+impl GameStatus {
+    pub fn to_content(&self) -> String {
+        format!(
+            r#"Dear Diary,
+
+All my friends are at StarCon! :(
+
+I have to stay at home and pet these kitties :~(
+
+Here's what I've done so far:
+
+* {} kitties still need pets
+* {} kitties are at peace with the world
+* {} kitties are mad because I petted them too much!
+"#,
+            self.kitties_needing_pets, self.kitties_at_peace, self.kitties_mad
+        )
+    }
+}
+
+pub fn game_status(inode_map: &HashMap<u64, GameEntity>) -> GameStatus {
+    let mut needing_pets_count: u32 = 0;
+    let mut at_peace_count: u32 = 0;
+    let mut mad_count: u32 = 0;
+    for pair in inode_map.iter() {
+        match pair.1 {
+            GameEntity::Directory { .. } => {}
+            GameEntity::File {
+                inode: _,
+                name,
+                parent: _,
+                content: _,
+                life: _,
+                pets_needed,
+            } => {
+                if name != "LiveJournal.txt" {
+                    if *pets_needed > 0 {
+                        needing_pets_count += 1;
+                    } else if *pets_needed == 0 {
+                        at_peace_count += 1;
+                    } else {
+                        mad_count += 1;
+                    }
+                }
+            }
+        }
+    }
+    GameStatus {
+        kitties_needing_pets: needing_pets_count,
+        kitties_at_peace: at_peace_count,
+        kitties_mad: mad_count,
+    }
+}
+
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 
 const CREATE_TIME: Timespec = Timespec {
@@ -385,9 +459,14 @@ impl Filesystem for HelloFS {
         _size: u32,
         reply: ReplyData,
     ) {
-        match self.inode_table.get_mut(&ino) {
+        match self.inode_table.get(&ino) {
             Some(f @ GameEntity::File { .. }) => {
-                reply.data(&f.get_content().as_bytes()[offset as usize..])
+                if f.get_name() == "LiveJournal.txt" {
+                    let status = game_status(&self.inode_table);
+                    reply.data(&status.to_content().as_bytes()[offset as usize..])
+                } else {
+                    reply.data(&f.get_content().as_bytes()[offset as usize..])
+                }
             }
             _ => reply.error(ENOENT),
         }
@@ -477,6 +556,7 @@ impl Filesystem for HelloFS {
 
 fn main() {
     let game_dir: GameDir = dir(1, "root")
+        .with_file(file(99, "LiveJournal.txt").content("journal"))
         .with_file(file(3, "laptop.kitty").content("LAPTOP"))
         .with_file(file(21, "wifi.kitty").content("WIFI"))
         .with_dir(
