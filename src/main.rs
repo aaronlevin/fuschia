@@ -15,6 +15,76 @@ use std::env;
 use std::ffi::OsStr;
 use time::Timespec;
 
+pub fn need_pets_content(name: &String, pets_needed: i32) -> String {
+    format!(
+        r#"Hello StarCon!
+My name is: {}
+
+I NEED TO BE PETTED
+
+Please send me {} pets
+                           __ _..._ _
+                           \ `)    `(/
+                           /`       \
+                           |   d  b  |
+             .-"````"=-..--\=    Y  /=
+           /`               `-.__=.'
+    _     / /\                 /o
+   ( \   / / |                 |
+    \ '-' /   >    /`""--.    /
+     '---'   /    ||      |   \\
+             \___,,))      \_,,))
+"#,
+        name, pets_needed
+    )
+}
+
+pub fn happy_kitty_content(name: &String) -> String {
+    format!(
+        r#"Hello StarCon!
+My name is: {}
+
+WOW! YOU GAVE ME ENOUGH PETS!! :heart:
+
+                           __ _..._ _
+                           \ `)    `(/
+                           /`       \
+                           |   d  b  |
+             .-"````"=-..--\=    Y  /=
+           /`               `-.__=.'
+    _     / /\                 /o
+   ( \   / / |                 |
+    \ '-' /   >    /`""--.    /
+     '---'   /    ||      |   \\
+             \___,,))      \_,,))
+"#,
+        name
+    )
+}
+
+pub fn no_more_pets(name: &String) -> String {
+    format!(
+        r#"Hello StarCon!
+My name is: {}
+
+MY HEART IS FICKLE! NO MORE PETS!!!!
+
+                           __ _..._ _
+                           \ `)    `(/
+                           /`       \
+                           |   d  b  |
+             .-"````"=-..--\=    Y  /=
+           /`               `-.__=.'
+    _     / /\                 /o
+   ( \   / / |                 |
+    \ '-' /   >    /`""--.    /
+     '---'   /    ||      |   \\
+             \___,,))      \_,,))
+"#,
+        name
+    )
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum GameEntity {
     Directory {
@@ -29,6 +99,7 @@ pub enum GameEntity {
         parent: Option<u64>,
         content: String,
         life: i32,
+        pets_needed: i32,
     },
 }
 impl GameEntity {
@@ -47,6 +118,7 @@ impl GameEntity {
             parent: None,
             content: content.to_string(),
             life: 100,
+            pets_needed: 5,
         }
     }
     pub fn get_name(&self) -> &str {
@@ -59,6 +131,27 @@ impl GameEntity {
         match self {
             GameEntity::Directory { inode, .. } => *inode,
             GameEntity::File { inode, .. } => *inode,
+        }
+    }
+    pub fn get_content(&self) -> String {
+        match self {
+            GameEntity::File {
+                inode: _,
+                name: _,
+                parent: _,
+                content,
+                life: _,
+                pets_needed,
+            } => {
+                if *pets_needed > 0 {
+                    need_pets_content(content, *pets_needed)
+                } else if *pets_needed == 0 {
+                    happy_kitty_content(content)
+                } else {
+                    no_more_pets(content)
+                }
+            }
+            GameEntity::Directory { .. } => "".to_string(),
         }
     }
     pub fn set_parent(&mut self, parent_inode: u64) {
@@ -117,11 +210,12 @@ impl GameEntity {
                 inode,
                 name: _,
                 parent: _,
-                content,
+                content: _,
                 life: _,
+                pets_needed: _,
             } => FileAttr {
                 ino: *inode,
-                size: content.len() as u64,
+                size: self.get_content().len() as u64,
                 blocks: 1,
                 atime: CREATE_TIME,
                 mtime: CREATE_TIME,
@@ -194,6 +288,7 @@ impl GameFile {
             parent: None,
             content: self.content.clone(),
             life: self.life,
+            pets_needed: self.life,
         }
     }
 }
@@ -354,13 +449,9 @@ impl Filesystem for HelloFS {
         reply: ReplyData,
     ) {
         match self.inode_table.get_mut(&ino) {
-            Some(GameEntity::File {
-                inode: _,
-                name: _,
-                parent: _,
-                content,
-                ref mut life,
-            }) => reply.data(&content.as_bytes()[offset as usize..]),
+            Some(f @ GameEntity::File { .. }) => {
+                reply.data(&f.get_content().as_bytes()[offset as usize..])
+            }
             _ => reply.error(ENOENT),
         }
     }
@@ -420,13 +511,20 @@ impl Filesystem for HelloFS {
                 name: _,
                 parent: _,
                 content: _,
-                ref mut life,
+                life: _,
+                ref mut pets_needed,
             }) => {
-                println!("SUCCESS");
-                let size = unsafe { std::str::from_utf8_unchecked(_data).len() };
-                println!("I HOPE");
-                *life -= size as i32;
-                reply.written(size as u32);
+                let string = unsafe { std::str::from_utf8_unchecked(_data) };
+                if string == "pets\n" || string == "pets" {
+                    if *pets_needed < 0 {
+                        reply.error(ENOENT);
+                    } else {
+                        *pets_needed -= 1;
+                        reply.written(string.len() as u32);
+                    }
+                } else {
+                    reply.error(ENOENT);
+                }
             }
             _ => {
                 println!("UH OH ERROR :(. inode: {} handle: {}", _ino, _fh);
@@ -436,7 +534,6 @@ impl Filesystem for HelloFS {
     }
 
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        println!("got a flush!");
         reply.ok();
     }
 }
@@ -451,8 +548,8 @@ pub fn gamedir_to_hash_map(gamedir: &mut GameDir) -> HashMap<u64, DirOrFile> {
 
 fn main() {
     let game_dir: GameDir = dir(1, "cool_dir")
-        .with_file(file(3, "cool_file.txt").content("content\n"))
-        .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("deep\n")));
+        .with_file(file(3, "cool_file.txt").content("LAPTOP"))
+        .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("WIFI")));
     let game_entities = game_dir.to_game_entities(None);
     for entity in game_entities.iter() {
         println!("entity: {:?}", entity);
