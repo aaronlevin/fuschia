@@ -547,9 +547,15 @@ pub fn gamedir_to_hash_map(gamedir: &mut GameDir) -> HashMap<u64, DirOrFile> {
 }
 
 fn main() {
-    let game_dir: GameDir = dir(1, "cool_dir")
-        .with_file(file(3, "cool_file.txt").content("LAPTOP"))
-        .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("WIFI")));
+    let game_dir: GameDir = dir(1, "root")
+        .with_file(file(3, "laptop.kitty").content("LAPTOP"))
+        .with_file(file(21, "wifi.kitty").content("WIFI"))
+        .with_dir(
+            dir(4, "basement_with_bad_kitties")
+                .with_file(file(5, "radar.kitty").content("radar"))
+                .with_file(file(23, "uggo.kitty").content("UGGO")),
+        )
+        .with_dir(dir(7, "more_baddies").with_file(file(77, "mimi.kitty").content("Mimi!")));
     let game_entities = game_dir.to_game_entities(None);
     for entity in game_entities.iter() {
         println!("entity: {:?}", entity);
