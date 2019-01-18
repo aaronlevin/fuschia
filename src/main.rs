@@ -6,8 +6,8 @@ extern crate libc;
 extern crate time;
 
 use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyWrite,
-    Request,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    ReplyWrite, Request,
 };
 use libc::ENOENT;
 use std::collections::HashMap;
@@ -268,18 +268,6 @@ impl GameDir {
         }
         vec
     }
-    /*
-    pub fn flatten(&self) -> Vec<GameEntity> {
-        let mut vec = Vec::new();
-        for file in self.files.iter_mut() {
-            vec.push((file.inode, DirOrFile::File(file)));
-        }
-        for subdir in self.sub_dirs.iter_mut() {
-            vec.extend(subdir.to_references());
-        }
-        vec
-    }
-    */
     pub fn to_entity_hash_map(&self) -> HashMap<u64, GameEntity> {
         let mut hash_map = HashMap::new();
         for entity in self.to_game_entities(None) {
@@ -372,10 +360,7 @@ impl Filesystem for HelloFS {
                 parent: _,
                 content,
                 ref mut life,
-            }) => {
-                *life -= 1;
-                reply.data(&content.as_bytes()[offset as usize..])
-            }
+            }) => reply.data(&content.as_bytes()[offset as usize..]),
             _ => reply.error(ENOENT),
         }
     }
@@ -388,7 +373,6 @@ impl Filesystem for HelloFS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        println!("readdir: ino={} offset={}", ino, offset);
         match self.inode_table.get(&ino) {
             Some(GameEntity::Directory {
                 inode: _,
@@ -412,7 +396,6 @@ impl Filesystem for HelloFS {
                 }
                 let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
                 for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
-                    println!("Adding entry: {} {}", entry.0, entry.2);
                     reply.add(entry.0, i as i64, entry.1, entry.2);
                 }
                 reply.ok();
@@ -431,7 +414,30 @@ impl Filesystem for HelloFS {
         _flags: u32,
         reply: ReplyWrite,
     ) {
-        reply.error(ENOENT);
+        match self.inode_table.get_mut(&_ino) {
+            Some(GameEntity::File {
+                inode: _,
+                name: _,
+                parent: _,
+                content: _,
+                ref mut life,
+            }) => {
+                println!("SUCCESS");
+                let size = unsafe { std::str::from_utf8_unchecked(_data).len() };
+                println!("I HOPE");
+                *life -= size as i32;
+                reply.written(size as u32);
+            }
+            _ => {
+                println!("UH OH ERROR :(. inode: {} handle: {}", _ino, _fh);
+                reply.error(ENOENT)
+            }
+        }
+    }
+
+    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+        println!("got a flush!");
+        reply.ok();
     }
 }
 
@@ -453,7 +459,7 @@ fn main() {
     }
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
-    let options = ["-o", "ro", "-o", "fsname=hello"]
+    let options = ["-o", "rw", "-o", "fsname=hello"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
