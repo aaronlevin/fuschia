@@ -15,6 +15,129 @@ use std::env;
 use std::ffi::OsStr;
 use time::Timespec;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum GameEntity {
+    Directory {
+        inode: u64,
+        name: String,
+        parent: Option<u64>,
+        children: Vec<u64>,
+    },
+    File {
+        inode: u64,
+        name: String,
+        parent: Option<u64>,
+        content: String,
+        life: i32,
+    },
+}
+impl GameEntity {
+    pub fn dir(inode: u64, name: &str) -> GameEntity {
+        GameEntity::Directory {
+            inode: inode,
+            name: name.to_string(),
+            parent: None,
+            children: Vec::new(),
+        }
+    }
+    pub fn file(inode: u64, name: &str, content: &str) -> GameEntity {
+        GameEntity::File {
+            inode: inode,
+            name: name.to_string(),
+            parent: None,
+            content: content.to_string(),
+            life: 100,
+        }
+    }
+    pub fn get_name(&self) -> &str {
+        match self {
+            GameEntity::Directory { inode: _, name, .. } => name.as_str(),
+            GameEntity::File { inode: _, name, .. } => name.as_str(),
+        }
+    }
+    pub fn get_inode(&self) -> u64 {
+        match self {
+            GameEntity::Directory { inode, .. } => *inode,
+            GameEntity::File { inode, .. } => *inode,
+        }
+    }
+    pub fn set_parent(&mut self, parent_inode: u64) {
+        match self {
+            GameEntity::Directory {
+                inode: _,
+                name: _,
+                ref mut parent,
+                ..
+            } => {
+                *parent = Some(parent_inode);
+            }
+            GameEntity::File {
+                inode: _,
+                name: _,
+                ref mut parent,
+                ..
+            } => *parent = Some(parent_inode),
+        }
+    }
+    pub fn push_child(&mut self, child_inode: u64) {
+        match self {
+            GameEntity::Directory {
+                inode: _,
+                name: _,
+                parent: _,
+                children,
+            } => children.push(child_inode),
+            _ => {}
+        }
+    }
+    pub fn to_file_attr(&self) -> FileAttr {
+        match self {
+            GameEntity::Directory {
+                inode,
+                name: _,
+                parent: _,
+                children: _,
+            } => FileAttr {
+                ino: *inode,
+                size: 0,
+                blocks: 1,
+                atime: CREATE_TIME,
+                mtime: CREATE_TIME,
+                ctime: CREATE_TIME,
+                crtime: CREATE_TIME,
+                kind: FileType::Directory,
+                perm: 0o644,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+            },
+            GameEntity::File {
+                inode,
+                name: _,
+                parent: _,
+                content,
+                life: _,
+            } => FileAttr {
+                ino: *inode,
+                size: content.len() as u64,
+                blocks: 1,
+                atime: CREATE_TIME,
+                mtime: CREATE_TIME,
+                ctime: CREATE_TIME,
+                crtime: CREATE_TIME,
+                kind: FileType::RegularFile,
+                perm: 0o644,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+            },
+        }
+    }
+}
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct GameFile {
     name: String,
@@ -63,6 +186,16 @@ impl GameFile {
             flags: 0,
         }
     }
+
+    pub fn to_game_entity(&self) -> GameEntity {
+        GameEntity::File {
+            inode: self.inode,
+            name: self.name.clone(),
+            parent: None,
+            content: self.content.clone(),
+            life: self.life,
+        }
+    }
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -107,6 +240,53 @@ impl GameDir {
             flags: 0,
         }
     }
+    pub fn to_game_entities(&self, parent: Option<u64>) -> Vec<GameEntity> {
+        let mut vec = Vec::new();
+        let mut children_vec = Vec::new();
+        for file in self.files.iter() {
+            children_vec.push(file.inode);
+        }
+        for subdir in self.sub_dirs.iter() {
+            children_vec.push(subdir.inode);
+        }
+        let root = GameEntity::Directory {
+            inode: self.inode,
+            name: self.name.clone(),
+            parent: parent,
+            children: children_vec,
+        };
+        vec.push(root);
+        for file in self.files.iter() {
+            let mut entity = file.to_game_entity();
+            println!("entity.set_parent: {:?} {}", entity, self.inode);
+            entity.set_parent(self.inode);
+            vec.push(entity);
+        }
+        for subdir in self.sub_dirs.iter() {
+            let subdir_vec = subdir.to_game_entities(Some(self.inode));
+            vec.extend(subdir_vec);
+        }
+        vec
+    }
+    /*
+    pub fn flatten(&self) -> Vec<GameEntity> {
+        let mut vec = Vec::new();
+        for file in self.files.iter_mut() {
+            vec.push((file.inode, DirOrFile::File(file)));
+        }
+        for subdir in self.sub_dirs.iter_mut() {
+            vec.extend(subdir.to_references());
+        }
+        vec
+    }
+    */
+    pub fn to_entity_hash_map(&self) -> HashMap<u64, GameEntity> {
+        let mut hash_map = HashMap::new();
+        for entity in self.to_game_entities(None) {
+            hash_map.insert(entity.get_inode(), entity);
+        }
+        hash_map
+    }
     pub fn to_references<'a>(&'a mut self) -> Vec<(u64, DirOrFile<'a>)> {
         let mut vec = Vec::new();
         for file in self.files.iter_mut() {
@@ -139,30 +319,30 @@ const CREATE_TIME: Timespec = Timespec {
     nsec: 0,
 }; // 2013-10-08 08:56
 
-pub struct HelloFS<'a> {
-    inode_table: HashMap<u64, DirOrFile<'a>>,
+pub struct HelloFS {
+    inode_table: HashMap<u64, GameEntity>,
 }
 
-impl<'a> Filesystem for HelloFS<'a> {
+impl Filesystem for HelloFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         match self.inode_table.get(&parent) {
-            Some(DirOrFile::Dir(d)) => {
-                let result = d
-                    .files
+            Some(GameEntity::Directory {
+                inode: _,
+                name: _,
+                parent: _,
+                children,
+            }) => {
+                match children
                     .iter()
-                    .find(|f| Some(f.name.as_ref()) == name.to_str());
-                if result.is_some() {
-                    reply.entry(&TTL, &result.unwrap().to_file_attr(), 0);
-                } else {
-                    let result = d
-                        .sub_dirs
-                        .iter()
-                        .find(|dir| Some(dir.name.as_ref()) == name.to_str());
-                    if result.is_some() {
-                        reply.entry(&TTL, &result.unwrap().to_file_attr(), 0);
-                    } else {
-                        reply.error(ENOENT);
-                    }
+                    .map(|child_inode| self.inode_table.get(child_inode))
+                    .filter(|some_entity| {
+                        some_entity.is_some() && some_entity.map(|e| e.get_name()) == name.to_str()
+                    })
+                    .collect::<Vec<Option<&GameEntity>>>()
+                    .as_slice()
+                {
+                    [Some(file_or_dir)] => reply.entry(&TTL, &file_or_dir.to_file_attr(), 0),
+                    _ => reply.error(ENOENT),
                 }
             }
             _ => reply.error(ENOENT),
@@ -171,8 +351,7 @@ impl<'a> Filesystem for HelloFS<'a> {
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         match self.inode_table.get(&ino) {
-            Some(DirOrFile::Dir(d)) => reply.attr(&TTL, &d.to_file_attr()),
-            Some(DirOrFile::File(f)) => reply.attr(&TTL, &f.to_file_attr()),
+            Some(dir_or_file) => reply.attr(&TTL, &dir_or_file.to_file_attr()),
             None => reply.error(ENOENT),
         }
     }
@@ -187,15 +366,17 @@ impl<'a> Filesystem for HelloFS<'a> {
         reply: ReplyData,
     ) {
         match self.inode_table.get_mut(&ino) {
-            Some(DirOrFile::Dir(_d)) => reply.error(ENOENT),
-            Some(DirOrFile::File(f)) => {
-                //let result: () = f;
-                //result.dec_life();
-                //result.dec_life();
-                //reply.data(&f.content.as_bytes()[offset as usize..])
-                reply.error(ENOENT)
+            Some(GameEntity::File {
+                inode: _,
+                name: _,
+                parent: _,
+                content,
+                ref mut life,
+            }) => {
+                *life -= 1;
+                reply.data(&content.as_bytes()[offset as usize..])
             }
-            None => reply.error(ENOENT),
+            _ => reply.error(ENOENT),
         }
     }
 
@@ -209,19 +390,26 @@ impl<'a> Filesystem for HelloFS<'a> {
     ) {
         println!("readdir: ino={} offset={}", ino, offset);
         match self.inode_table.get(&ino) {
-            Some(DirOrFile::Dir(gamedir)) => {
+            Some(GameEntity::Directory {
+                inode: _,
+                name: _,
+                parent: _,
+                children,
+            }) => {
                 let mut entries: Vec<(u64, FileType, &str)> = Vec::new();
                 entries.push((11, FileType::Directory, "."));
                 entries.push((12, FileType::Directory, ".."));
-                for subdir in gamedir.sub_dirs.iter() {
-                    entries.push((subdir.inode, FileType::Directory, subdir.name.as_str()));
+                for child in children.iter() {
+                    match self.inode_table.get(child) {
+                        Some(GameEntity::Directory { inode, name, .. }) => {
+                            entries.push((*inode, FileType::Directory, name.as_str()))
+                        }
+                        Some(GameEntity::File { inode, name, .. }) => {
+                            entries.push((*inode, FileType::RegularFile, name.as_str()))
+                        }
+                        None => {}
+                    }
                 }
-                for file in gamedir.files.iter() {
-                    entries.push((file.inode, FileType::RegularFile, file.name.as_str()));
-                }
-                // Offset of 0 means no offset.
-                // Non-zero offset means the passed offset has already been seen, and we should start after
-                // it.
                 let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
                 for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
                     println!("Adding entry: {} {}", entry.0, entry.2);
@@ -229,10 +417,7 @@ impl<'a> Filesystem for HelloFS<'a> {
                 }
                 reply.ok();
             }
-            _ => {
-                reply.error(ENOENT);
-                return;
-            }
+            _ => reply.error(ENOENT),
         }
     }
 
@@ -259,16 +444,20 @@ pub fn gamedir_to_hash_map(gamedir: &mut GameDir) -> HashMap<u64, DirOrFile> {
 }
 
 fn main() {
-    let mut game_dir: GameDir = dir(1, "cool_dir")
+    let game_dir: GameDir = dir(1, "cool_dir")
         .with_file(file(3, "cool_file.txt").content("content\n"))
         .with_dir(dir(4, "deep_dir").with_file(file(5, "deep_file.txt").content("deep\n")));
+    let game_entities = game_dir.to_game_entities(None);
+    for entity in game_entities.iter() {
+        println!("entity: {:?}", entity);
+    }
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "ro", "-o", "fsname=hello"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    let inode_table = gamedir_to_hash_map(&mut game_dir);
+    let inode_table = game_dir.to_entity_hash_map();
     fuse::mount(
         HelloFS {
             inode_table: inode_table,
