@@ -224,7 +224,7 @@ impl GameEntity {
                         kitties_at_peace: 100,
                         kitties_mad: 100,
                     };
-                    content_size = fake_game_status.to_content().len() as u64;
+                    content_size = (fake_game_status.to_content().len() * 10) as u64;
                 } else {
                     content_size = self.get_content().len() as u64;
                 }
@@ -354,8 +354,53 @@ pub struct GameStatus {
 }
 impl GameStatus {
     pub fn to_content(&self) -> String {
-        format!(
-            r#"Dear Diary,
+        if self.kitties_needing_pets == 0 && self.kitties_mad == 0 {
+            format!(
+                r#"GAME OVER!!
+
+All the kitties are at peace!!!
+
+             *     ,MMM8&&&.            *
+                  MMMM88&&&&&    .
+                 MMMM88&&&&&&&
+     *           MMM88&&&&&&&&
+                 MMM88&&&&&&&&
+                 'MMM88&&&&&&'
+                   'MMM8&&&'      *
+          |\___/|
+          )     (             .              '
+         =\     /=
+           )===(       *
+          /     \
+          |     |
+         /       \
+         \       /
+  _/\_/\_/\__  _/_/\_/\_/\_/\_/\_/\_/\_/\_/\_
+  |  |  |  |( (  |  |  |  |  |  |  |  |  |  |
+  |  |  |  | ) ) |  |  |  |  |  |  |  |  |  |
+  |  |  |  |(_(  |  |  |  |  |  |  |  |  |  |
+  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+  "#
+            )
+        } else if self.kitties_needing_pets == 0 {
+            format!(
+                r#"GAME OVER!!!
+
+SO MANY KITIES ARE MAD AT U!!!!!!!!!!!! :-(
+       ___
+   _.-|   |          |\__/,|   (`\
+  (   | {} |          |o o  |__ _) )
+   "-.|___|        _.( T   )  `  /
+    .--'-`-.     _((_ `^--' /_<  \
+  .+|______|__.-||__)`-'(((/  (((/
+
+        "#,
+                self.kitties_mad
+            )
+        } else {
+            format!(
+                r#"Dear Diary,
 
 All my friends are at StarCon! :(
 
@@ -367,8 +412,9 @@ Here's what I've done so far:
 * {} kitties are at peace with the world
 * {} kitties are mad because I petted them too much!
 "#,
-            self.kitties_needing_pets, self.kitties_at_peace, self.kitties_mad
-        )
+                self.kitties_needing_pets, self.kitties_at_peace, self.kitties_mad
+            )
+        }
     }
 }
 

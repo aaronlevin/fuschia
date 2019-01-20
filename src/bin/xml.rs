@@ -541,8 +541,6 @@ fn main() {
     let inode_counter = &mut 1;
     let game_dir: GameDir = document_to_game_dir(&doc.root(), inode_counter);
 
-    let game_entities = game_dir.to_game_entities(None);
-    for entity in game_entities.iter() {}
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "rw", "-o", "fsname=hello"]
