@@ -34,6 +34,7 @@ Please send me {} pets
     \ '-' /   >    /`""--.    /
      '---'   /    ||      |   \\
              \___,,))      \_,,))
+
 "#,
         name, pets_needed
     )
@@ -44,7 +45,7 @@ pub fn happy_kitty_content(name: &String) -> String {
         r#"Hello StarCon!
 My name is: {}
 
-WOW! YOU GAVE ME ENOUGH PETS!! ♡♡♡♡♡
+WOW! YOU GAVE ME ENOUGH PETS!! ❤❤❤❤❤❤❤
 
      _ _..._ __
     \)`    (` /
@@ -57,6 +58,7 @@ WOW! YOU GAVE ME ENOUGH PETS!! ♡♡♡♡♡
            \    .--""`\    <   \ '-' /
           //   |      ||    \   '---'
          ((,,_/      ((,,___/
+
 "#,
         name
     )
