@@ -247,7 +247,6 @@ impl GameDir {
         vec.push(root);
         for file in self.files.iter() {
             let mut entity = file.to_game_entity();
-            println!("entity.set_parent: {:?} {}", entity, self.inode);
             entity.set_parent(self.inode);
             vec.push(entity);
         }
@@ -505,7 +504,6 @@ pub fn document_to_game_dir(document: &Node, inode_counter: &mut u64) -> GameDir
         let first_child = node.first_child();
         if node.is_root() {
             // skip
-            println!("ROOT");
         } else {
             if node.has_children() && first_child.map_or(false, |c| c.is_text()) {
                 let content = first_child.unwrap().text().unwrap().to_string();
@@ -539,16 +537,12 @@ fn main() {
     let mut raw_xml = get_xml_file_contents(file.to_str().unwrap());
     let raw_doc = Document::parse(&mut raw_xml).unwrap();
     let mut filtered_xml = filter_newlines(&raw_doc);
-    println!("{}", filtered_xml);
     let doc = Document::parse(&mut filtered_xml).unwrap();
-    println!("PARSED");
     let inode_counter = &mut 1;
     let game_dir: GameDir = document_to_game_dir(&doc.root(), inode_counter);
 
     let game_entities = game_dir.to_game_entities(None);
-    for entity in game_entities.iter() {
-        println!("entity: {:?}", entity);
-    }
+    for entity in game_entities.iter() {}
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "rw", "-o", "fsname=hello"]

@@ -322,7 +322,6 @@ impl GameDir {
         vec.push(root);
         for file in self.files.iter() {
             let mut entity = file.to_game_entity();
-            println!("entity.set_parent: {:?} {}", entity, self.inode);
             entity.set_parent(self.inode);
             vec.push(entity);
         }
@@ -567,9 +566,7 @@ fn main() {
         )
         .with_dir(dir(7, "more_baddies").with_file(file(77, "mimi.kitty").content("Mimi!")));
     let game_entities = game_dir.to_game_entities(None);
-    for entity in game_entities.iter() {
-        println!("entity: {:?}", entity);
-    }
+    for entity in game_entities.iter() {}
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
     let options = ["-o", "rw", "-o", "fsname=hello"]
