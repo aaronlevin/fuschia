@@ -32,11 +32,10 @@ pub fn starcon_content(count: u64) -> String {
     }
 }
 
-pub fn starcon_file_attr(_count: u64) -> FileAttr {
+pub fn starcon_file_attr(count: u64) -> FileAttr {
     FileAttr {
         ino: 3,
-        //size: starcon_content(count).len() as u64,
-        size: 100 as u64,
+        size: starcon_content(count).len() as u64,
         blocks: 1,
         atime: CREATE_TIME,
         mtime: CREATE_TIME,
@@ -45,8 +44,8 @@ pub fn starcon_file_attr(_count: u64) -> FileAttr {
         kind: FileType::RegularFile,
         perm: 0o644,
         nlink: 1,
-        uid: 501,
-        gid: 20,
+        uid: 1000,
+        gid: 100,
         rdev: 0,
         flags: 0,
     }
@@ -63,8 +62,8 @@ const ROOT_FILE_ATTR: FileAttr = FileAttr {
     kind: FileType::Directory,
     perm: 0o644,
     nlink: 1,
-    uid: 501,
-    gid: 20,
+    uid: 1000,
+    gid: 100,
     rdev: 0,
     flags: 0,
 };
