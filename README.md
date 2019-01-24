@@ -8,3 +8,4 @@ Several [FUSE](https://github.com/libfuse/libfuse) experiments built for [StarCo
 * `fuschia`: a FUSE file-system *game* where you have to pet kittens by writing `pets` to the `.kitty` files (you can check your status in `LiveJournal.txt`). When you've petted all the kittens, the game is over.
 
 This code was rushed and is unidiomatic rust. It's buggy as hell! No guarantees!
+pets
